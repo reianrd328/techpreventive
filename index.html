@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IT Inventory System (Cloud Edition)</title>
+    <!-- CDN Engines: Tesseract.js for OCR & SheetJS for serverless Excel generation -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #18bc9c;
+            --accent-color: #e74c3c;
+            --bg-color: #f8f9fa;
+            --card-bg: #ffffff;
+            --text-color: #333333;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container { max-width: 1300px; margin: 0 auto; }
+        h2 { color: var(--primary-color); border-bottom: 2px solid var(--secondary-color); padding-bottom: 10px; margin-top: 0; }
+        .card { background: var(--card-bg); padding: 25px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 25px; }
+        .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .form-group { display: flex; flex-direction: column; }
+        .form-group.full-width { grid-column: 1 / -1; }
+        label { font-size: 0.85rem; font-weight: 600; margin-bottom: 5px; color: #555; }
+        input, select, textarea { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem; transition: border-color 0.2s; }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: var(--secondary-color); }
+        input.readonly-calculated { background-color: #eec; font-weight: bold; color: #2c3e50; border: 1px solid #18bc9c; }
+        .actions { display: flex; gap: 10px; justify-content: flex-end; }
+        
+        button { padding: 12px 24px; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; transition: background 0.2s; }
+        .btn-add { background-color: var(--secondary-color); color: white; }
+        .btn-add:hover { background-color: #128f76; }
+        .btn-export { background-color: var(--primary-color); color: white; }
+        .btn-export:hover { background-color: #1a252f; }
+        .btn-scan { background-color: #3498db; color: white; margin-right: auto; }
+        .btn-scan:hover { background-color: #2980b9; }
+
+        .table-responsive { overflow-x: auto; max-height: 400px; border: 1px solid #ddd; border-radius: 4px; background: #fff; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left; }
+        th { background-color: var(--primary-color); color: white; padding: 12px; position: sticky; top: 0; z-index: 10; }
+        td { padding: 10px; border-bottom: 1px solid #ddd; white-space: nowrap; }
+        tr:hover { background-color: #f1f1f1; }
+        .empty-msg { text-align: center; color: #777; padding: 35px; font-style: italic; }
+
+        /* Modal Configurations */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.6); display: flex; justify-content: center; align-items: center; z-index: 2000; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+        .modal-overlay.active { opacity: 1; pointer-events: auto; }
+        .modal-content { background: white; width: 90%; max-width: 650px; padding: 25px; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); position: relative; transform: translateY(-20px); transition: transform 0.3s ease; }
+        .modal-overlay.active .modal-content { transform: translateY(0); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 15px; }
+        .modal-header h3 { margin: 0; color: var(--primary-color); }
+        .close-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #aaa; padding: 0 5px; }
+        .close-btn:hover { color: var(--accent-color); }
+        .ocr-upload-zone { border: 2px dashed #ccc; padding: 20px; text-align: center; border-radius: 6px; background: #fafafa; margin-bottom: 15px; cursor: pointer; }
+        .ocr-upload-zone:hover { border-color: var(--secondary-color); }
+        #imagePreview { max-width: 100%; max-height: 200px; margin-top: 10px; display: none; border-radius: 4px; border: 1px solid #ddd; }
+        .ocr-status { font-weight: bold; color: #7f8c8d; margin: 10px 0; font-size: 0.9rem; }
+        .ocr-result-area { width: 100%; box-sizing: border-box; font-family: monospace; font-size: 0.9rem; background: #f4f6f7; border: 1px solid #ddd; border-radius: 4px; padding: 10px; resize: vertical; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="card">
+        <h2>IT Inventory Data Entry (Serverless Cloud Edition)</h2>
+        <form id="inventoryForm">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="dept">Department</label>
+                    <input type="text" id="dept" required>
+                </div>
+                <div class="form-group">
+                    <label for="sysUnit">System Unit</label>
+                    <input type="text" id="sysUnit" placeholder="e.g. Laptop" required>
+                </div>
+                <div class="form-group">
+                    <label for="issuedAcquired">Unit Issued / Acquired</label>
+                    <select id="issuedAcquired">
+                        <option value="Issued">Issued</option>
+                        <option value="Acquired">Acquired</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="empName">Employee's Name</label>
+                    <input type="text" id="empName" required>
+                </div>
+                <div class="form-group">
+                    <label for="dateVisited">Date Visited</label>
+                    <input type="date" id="dateVisited" required>
+                </div>
+                <div class="form-group">
+                    <label for="itCode">IT Code</label>
+                    <input type="text" id="itCode" required>
+                </div>
+                <div class="form-group">
+                    <label for="modelBrand">Model / Brand</label>
+                    <input type="text" id="modelBrand" required>
+                </div>
+                <div class="form-group">
+                    <label for="ram">RAM</label>
+                    <input type="text" id="ram" placeholder="e.g. 16GB">
+                </div>
+                <div class="form-group">
+                    <label for="storage">Storage Capacity</label>
+                    <input type="text" id="storage" placeholder="e.g. 512GB SSD">
+                </div>
+                <div class="form-group">
+                    <label for="serial">Serial (HDD & ALL UNIT)</label>
+                    <input type="text" id="serial" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="dateIssued">Date Issued</label>
+                    <input type="date" id="dateIssued">
+                </div>
+                <div class="form-group">
+                    <label for="depreciationDate">Depreciation Date</label>
+                    <input type="date" id="depreciationDate">
+                </div>
+                <div class="form-group">
+                    <label for="unitAge">Unit Age (Calculated Years)</label>
+                    <input type="text" id="unitAge" class="readonly-calculated" placeholder="Awaiting Dates..." readonly>
+                </div>
+
+                <div class="form-group">
+                    <label for="faNum">FA #</label>
+                    <input type="text" id="faNum">
+                </div>
+                <div class="form-group">
+                    <label for="macAddr">MAC Address</label>
+                    <input type="text" id="macAddr" placeholder="00:0A:95:9D:68:16">
+                </div>
+                <div class="form-group">
+                    <label for="techSupport">Tech Support</label>
+                    <input type="text" id="techSupport" required>
+                </div>
+
+                <div class="form-group full-width">
+                    <label for="specs">Description / Specs</label>
+                    <textarea id="specs" rows="2"></textarea>
+                </div>
+                <div class="form-group full-width">
+                    <label for="findings">Findings</label>
+                    <textarea id="findings" rows="2"></textarea>
+                </div>
+                <div class="form-group full-width">
+                    <label for="actionTaken">Action Taken</label>
+                    <textarea id="actionTaken" rows="2"></textarea>
+                </div>
+                <div class="form-group full-width">
+                    <label for="remarks">Remarks</label>
+                    <textarea id="remarks" rows="2"></textarea>
+                </div>
+            </div>
+            <div class="actions">
+                <button type="button" class="btn-scan" id="openOcrBtn">📷 Scan Image (OCR)</button>
+                <button type="submit" class="btn-add">Add to Batch</button>
+                <button type="button" class="btn-export" id="exportBtn" disabled>Export to Excel</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>Live Preview Batch</h2>
+        <div class="table-responsive">
+            <table id="previewTable">
+                <thead>
+                    <tr>
+                        <th>Department</th><th>System Unit</th><th>Status</th><th>Employee</th>
+                        <th>Visited</th><th>IT Code</th><th>Model</th><th>RAM</th>
+                        <th>Storage</th><th>Serial</th><th>Specs</th><th>Issued</th>
+                        <th>Age (Years)</th><th>Depreciation</th><th>Findings</th><th>FA #</th>
+                        <th>MAC</th><th>Action Taken</th><th>Remarks</th><th>Tech Support</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <tr>
+                        <td colspan="20" class="empty-msg">No entries added to the current batch session yet.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- OCR Modal -->
+<div class="modal-overlay" id="ocrModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Image to Text Converter (OCR)</h3>
+            <button class="close-btn" id="closeOcrBtn">&times;</button>
+        </div>
+        <div class="ocr-upload-zone" onclick="document.getElementById('ocrFileInput').click()">
+            <p style="margin: 0; color: #666;">📁 Click to upload or drag an asset photo/label here</p>
+            <input type="file" id="ocrFileInput" accept="image/*" style="display: none;">
+            <img id="imagePreview" alt="Upload Preview">
+        </div>
+        <div class="ocr-status" id="ocrStatus">Status: Waiting for image...</div>
+        <label style="margin-bottom: 5px; display: block;">Extracted Text Result:</label>
+        <textarea class="ocr-result-area" id="ocrResultText" rows="6"></textarea>
+        <div style="display: flex; gap: 10px; margin-top: 15px; justify-content: flex-end;">
+            <button type="button" id="copyOcrTextBtn" style="background: #27ae60; color: white; padding: 8px 16px;">📋 Copy Text</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let localInventoryStore = [];
+
+    const form = document.getElementById('inventoryForm');
+    const tableBody = document.getElementById('tableBody');
+    const exportBtn = document.getElementById('exportBtn');
+    
+    // Live Age Calculation Logic
+    function runLiveAgeCalculation() {
+        const issued = document.getElementById('dateIssued').value;
+        const deprec = document.getElementById('depreciationDate').value;
+        if (issued && deprec) {
+            const dayCount = (new Date(deprec) - new Date(issued)) / (1000 * 60 * 60 * 24);
+            document.getElementById('unitAge').value = dayCount >= 0 ? (dayCount / 365.25).toFixed(1) + " Years" : "Invalid Order";
+        } else {
+            document.getElementById('unitAge').value = "";
+        }
+    }
+    document.getElementById('dateIssued').addEventListener('change', runLiveAgeCalculation);
+    document.getElementById('depreciationDate').addEventListener('change', runLiveAgeCalculation);
+
+    // OCR Handlers
+    const ocrModal = document.getElementById('ocrModal');
+    document.getElementById('openOcrBtn').addEventListener('click', () => ocrModal.classList.add('active'));
+    document.getElementById('closeOcrBtn').addEventListener('click', () => {
+        ocrModal.classList.remove('active');
+        document.getElementById('ocrFileInput').value = '';
+        document.getElementById('imagePreview').style.display = 'none';
+        document.getElementById('ocrStatus').textContent = 'Status: Waiting for image...';
+        document.getElementById('ocrResultText').value = '';
+    });
+
+    document.getElementById('ocrFileInput').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(ev) {
+            document.getElementById('imagePreview').src = ev.target.result;
+            document.getElementById('imagePreview').style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+
+        document.getElementById('ocrStatus').textContent = 'Status: Scanning...';
+        Tesseract.recognize(file, 'eng', { logger: m => {
+            if(m.status === 'recognizing text') document.getElementById('ocrStatus').textContent = `Scanning (${Math.round(m.progress * 100)}%)`;
+        }}).then(({ data: { text } }) => {
+            document.getElementById('ocrStatus').textContent = 'Status: Scan complete!';
+            document.getElementById('ocrResultText').value = text.trim();
+        });
+    });
+
+    document.getElementById('copyOcrTextBtn').addEventListener('click', () => {
+        const r = document.getElementById('ocrResultText');
+        if(!r.value) return; r.select(); document.execCommand('copy'); alert('Copied!');
+    });
+
+    // Add entries to batch array
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        const item = {
+            dept: document.getElementById('dept').value,
+            sysUnit: document.getElementById('sysUnit').value,
+            issuedAcquired: document.getElementById('issuedAcquired').value,
+            empName: document.getElementById('empName').value,
+            dateVisited: document.getElementById('dateVisited').value,
+            itCode: document.getElementById('itCode').value,
+            modelBrand: document.getElementById('modelBrand').value,
+            ram: document.getElementById('ram').value,
+            storage: document.getElementById('storage').value,
+            serial: document.getElementById('serial').value,
+            specs: document.getElementById('specs').value,
+            dateIssued: document.getElementById('dateIssued').value,
+            unitAge: document.getElementById('unitAge').value,
+            depreciationDate: document.getElementById('depreciationDate').value,
+            findings: document.getElementById('findings').value,
+            faNum: document.getElementById('faNum').value,
+            macAddr: document.getElementById('macAddr').value,
+            actionTaken: document.getElementById('actionTaken').value,
+            remarks: document.getElementById('remarks').value,
+            techSupport: document.getElementById('techSupport').value
+        };
+
+        localInventoryStore.push(item);
+        updateTable();
+        form.reset();
+        
+        document.getElementById('dept').value = item.dept;
+        document.getElementById('dateVisited').value = item.dateVisited;
+        document.getElementById('techSupport').value = item.techSupport;
+    });
+
+    function updateTable() {
+        if (localInventoryStore.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="20" class="empty-msg">No entries added yet.</td></tr>';
+            exportBtn.disabled = true; return;
+        }
+        exportBtn.disabled = false; tableBody.innerHTML = '';
+        localInventoryStore.forEach(row => {
+            const tr = document.createElement('tr');
+            Object.values(row).forEach(v => { const td = document.createElement('td'); td.textContent = v || '—'; tr.appendChild(td); });
+            tableBody.appendChild(tr);
+        });
+    }
+
+    // Direct Browser-to-Excel Export with Live Formula Binding
+    exportBtn.addEventListener('click', function() {
+        if(localInventoryStore.length === 0) return;
+
+        const headers = [
+            'Department', 'System Unit', 'UnitIssued/Acquired', "Employee's Name",
+            'Date Visited', 'IT Code', 'Model / Brand', 'RAM', 'Storage Capacity',
+            'Serial (HDD&ALL UNIT)', 'Description/ Specs', 'Date Issued', 'Unit Age',
+            'Depreciation date', 'Findings', 'FA #', 'MAC Address', 'Action Taken',
+            'Remarks', 'Tech Supprt'
+        ];
+
+        // Format raw elements and inject live math formula variables mapping cells row-by-row
+        const dataRows = localInventoryStore.map((item, index) => {
+            const R = index + 2; // Row calculation offset matching Excel header
+            return [
+                item.dept, item.sysUnit, item.issuedAcquired, item.empName,
+                item.dateVisited, item.itCode, item.modelBrand, item.ram, item.storage,
+                item.serial, item.specs, item.dateIssued,
+                { f: `IF(OR(ISBLANK(L${R}),ISBLANK(N${R})), "", ROUND((N${R}-L${R})/365.25, 1))` }, // Column M Formula binding
+                item.depreciationDate, item.findings, item.faNum, item.macAddr, item.actionTaken,
+                item.remarks, item.techSupport
+            ];
+        });
+
+        const workbook = XLSX.utils.book_new();
+        const worksheet = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+        XLSX.utils.book_append_sheet(workbook, worksheet, "IT Inventory Master");
+        XLSX.writeFile(workbook, "IT_Inventory_Report.xlsx");
+    });
+</script>
+</body>
+</html>
