@@ -205,8 +205,16 @@ def export_csv():
                    date_issued, unit_age, depreciation_date, findings, fa_number, monitor_fa, keyboard_fa, mouse_fa,
                    printer_fa, router_fa, webcam_fa, ups_fa, mac_address, action_taken, remarks, tech_support
             FROM specs_log 
-            WHERE COALESCE(date_visited, date_issued, CURDATE()) BETWEEN %s AND %s
-            ORDER BY COALESCE(date_visited, date_issued, CURDATE()) ASC
+            WHERE COALESCE(
+                STR_TO_DATE(date_visited, '%%Y-%%m-%%d'), 
+                STR_TO_DATE(date_issued, '%%Y-%%m-%%d'), 
+                CURDATE()
+            ) BETWEEN STR_TO_DATE(%s, '%%Y-%%m-%%d') AND STR_TO_DATE(%s, '%%Y-%%m-%%d')
+            ORDER BY COALESCE(
+                STR_TO_DATE(date_visited, '%%Y-%%m-%%d'), 
+                STR_TO_DATE(date_issued, '%%Y-%%m-%%d'), 
+                CURDATE()
+            ) ASC
         """
         cursor.execute(sql, (start_date, end_date))
         rows = cursor.fetchall()
