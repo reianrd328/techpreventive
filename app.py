@@ -198,17 +198,25 @@ def export_csv():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
+        
+        # --- FIX: Using COALESCE to handle NULL/missing dates gracefully ---
+        # If date_visited is NULL, it falls back to date_issued. 
+        # If date_issued is also NULL, it falls back to the current date (CURDATE()).
         sql = """
             SELECT business_name, system_unit, issued_owned, employee_name, date_visited, it_code, model_brand,
                    windows_edition, ram_storage, ssd_storage, ssd_serial, hdd_storage, hdd_serial, description_specs,
                    date_issued, unit_age, depreciation_date, findings, fa_number, monitor_fa, keyboard_fa, mouse_fa,
                    printer_fa, router_fa, webcam_fa, ups_fa, mac_address, action_taken, remarks, tech_support
             FROM specs_log 
-            WHERE date_visited BETWEEN %s AND %s
-            ORDER BY date_visited ASC
+            WHERE COALESCE(date_visited, date_issued, CURDATE()) BETWEEN %s AND %s
+            ORDER BY COALESCE(date_visited, date_issued, CURDATE()) ASC
         """
         cursor.execute(sql, (start_date, end_date))
         rows = cursor.fetchall()
+        
+        # intercept empty result sets early to match your desired UI/API behavior
+        if not rows:
+            return jsonify({"success": False, "error": "Filter applied, but no records found."}), 400
         
         output = io.StringIO()
         writer = csv.writer(output)
@@ -229,13 +237,12 @@ def export_csv():
             download_name=f"Hardware_Export_{start_date}_to_{end_date}.csv"
         )
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+        return jsonify({"success": False, "error": str(e)}), 500
     finally:
         if cursor:
             cursor.close()
         if conn:
             conn.close()
-
 @app.route('/api/check-duplicate/<it_code>', methods=['GET'])
 def check_duplicate(it_code):
     """Checks if an IT Code (Device Name) already exists in the system database."""
